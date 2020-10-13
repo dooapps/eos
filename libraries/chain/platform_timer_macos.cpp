@@ -63,8 +63,6 @@ platform_timer::platform_timer() {
    }
 
    my->timerid = next_timerid++;
-
-   compute_and_print_timer_accuracy(*this);
 }
 
 platform_timer::~platform_timer() {
