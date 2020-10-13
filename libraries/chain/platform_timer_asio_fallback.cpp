@@ -40,8 +40,6 @@ platform_timer::platform_timer() {
    }
 
    my->timer = std::make_unique<boost::asio::high_resolution_timer>(*checktime_ios);
-
-   //compute_and_print_timer_accuracy(*this);
 }
 
 platform_timer::~platform_timer() {
