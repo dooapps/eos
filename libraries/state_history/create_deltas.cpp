@@ -147,35 +147,35 @@ using table_key = chain::backing_store::table_id_object_view;
 using table_store = std::vector<table_key>;
 
 struct rocksdb_receiver{
-   void add_row(const chain::backing_store::primary_index_view& row, const chainbase::database& db){
+   void add_row(const chain::backing_store::primary_index_view& row){
       prim.push_back({table_st.size()-1, row});
    }
 
-   void add_row(const chain::backing_store::secondary_index_view<uint64_t>& row, const chainbase::database& db){
+   void add_row(const chain::backing_store::secondary_index_view<uint64_t>& row){
       sec_i64.push_back({table_st.size()-1, row});
    }
 
-   void add_row(const chain::backing_store::secondary_index_view<chain::uint128_t>& row, const chainbase::database& db){
+   void add_row(const chain::backing_store::secondary_index_view<chain::uint128_t>& row){
       sec_i128.push_back({table_st.size()-1, row});
    }
 
-   void add_row(const chain::backing_store::secondary_index_view<chain::key256_t>& row, const chainbase::database& db){
+   void add_row(const chain::backing_store::secondary_index_view<chain::key256_t>& row){
       sec_i256.push_back({table_st.size()-1, row});
    }
 
-   void add_row(const chain::backing_store::secondary_index_view<float64_t>& row, const chainbase::database& db){
+   void add_row(const chain::backing_store::secondary_index_view<float64_t>& row){
       sec_f64.push_back({table_st.size()-1, row});
    }
 
-   void add_row(const chain::backing_store::secondary_index_view<float128_t>& row, const chainbase::database& db){
+   void add_row(const chain::backing_store::secondary_index_view<float128_t>& row){
       sec_f128.push_back({table_st.size()-1, row});
    }
 
-   void add_row(const chain::backing_store::table_id_object_view& row, const chainbase::database& db){
+   void add_row(const chain::backing_store::table_id_object_view& row){
       table_st.emplace_back(row);
    }
 
-   void add_row(fc::unsigned_int x, const chainbase::database& db){
+   void add_row(fc::unsigned_int x){
 
    }
 
@@ -221,11 +221,13 @@ std::vector<table_delta> create_deltas(const chain::combined_database& db, bool 
    std::vector<table_delta>                          deltas_result;
    rocksdb_receiver rec;
 
-   chain::backing_store::rocksdb_contract_db_table_writer writer(rec, db.get_db(), *db.get_kv_undo_stack());
+   using table_collector = chain::backing_store::rocksdb_whole_db_table_collector<rocksdb_receiver>;
+   table_collector table_collector_receiver(rec);
+   chain::backing_store::rocksdb_contract_db_table_writer writer(table_collector_receiver);
 
-   const std::vector<char> rocksdb_contract_db_prefix{ 0x12 }; // for DB API
-
-   chain::backing_store::walk_rocksdb_entries_with_prefix(db.get_kv_undo_stack(), rocksdb_contract_db_prefix, writer);
+   const auto begin_key = eosio::session::shared_bytes(&chain::backing_store::rocksdb_contract_db_prefix, 1);
+   const auto end_key = begin_key.next();
+   chain::backing_store::walk_rocksdb_entries_with_prefix(db.get_kv_undo_stack(), begin_key, end_key, writer);
 
    deltas_result = create_deltas_rocksdb(*db.get_kv_undo_stack(), rec);
 
