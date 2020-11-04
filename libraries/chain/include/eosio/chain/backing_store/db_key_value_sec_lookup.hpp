@@ -175,44 +175,69 @@ namespace eosio { namespace chain { namespace backing_store {
 	 std::cout << "print==" << print << std::endl;
          if (!match_prefix(secondary_key.full_primary_to_sec_key, session_iter)) {
             std::cout << "table_ei: " << key_store.table_ei << ", iterator: " << iterator << std::endl;
-            if (session_iter != current_session.end()) {
-               std::cout << "secondary_key.full_primary_to_sec_key:" << std::endl;
-               std::cout << secondary_key.full_primary_to_sec_key << std::endl;
-	       auto analyze = [&](const auto& key) {
-                  const auto min_size = std::min(secondary_key.full_primary_to_sec_key.size(), key.size());
-                  std::cout << "key:" << std::endl;
-                  std::cout << key << std::endl;
-                  const char* data1 = secondary_key.full_primary_to_sec_key.data();
-                  const char* data2 = key.data();
-                  for (uint64_t i = 0; i < min_size; ++i) {
-                     if (data1[i] != data2[i]) {
-                        ilog("TESTING - at index: ${index}, ${lhs} != ${rhs}",("index",i)("lhs", (uint8_t)data1[i])("rhs", (uint8_t)data2[i]));
+            auto analyze_session = [&](auto& session) {
+               if (true){
+                  std::cout << "secondary_key.full_primary_to_sec_key:" << std::endl;
+                  std::cout << secondary_key.full_primary_to_sec_key << std::endl;
+                  auto analyze = [&](const auto& key) {
+                     const auto min_size = std::min(secondary_key.full_primary_to_sec_key.size(), key.size());
+                     std::cout << "key:" << std::endl;
+                     std::cout << key << std::endl;
+                     const char* data1 = secondary_key.full_primary_to_sec_key.data();
+                     const char* data2 = key.data();
+                     for (uint64_t i = 0; i < min_size; ++i) {
+                        if (data1[i] != data2[i]) {
+                           ilog("TESTING - at index: ${index}, ${lhs} != ${rhs}",("index",i)("lhs", (uint8_t)data1[i])("rhs", (uint8_t)data2[i]));
+                        }
                      }
+	          };
+                  const auto& key = (*session_iter).first;
+                  ilog("TESTING - request size: ${rsize}, found size: ${fsize}",("rsize",secondary_key.full_primary_to_sec_key.size())("fsize", key.size()));
+                  analyze(key);
+                  const auto primary_to_sec_temp = db_key_value_format::create_full_key_prefix(secondary_key.full_primary_to_sec_key, end_of_prefix::at_prim_to_sec_type);
+                  auto next_p_to_sec = primary_to_sec_temp.next();
+                  auto primary_to_sec_iter = session.lower_bound(primary_to_sec_temp);
+                  std::cout << "all of this secondary type" << std::endl;
+                  while(primary_to_sec_iter != session.end() && (*primary_to_sec_iter).first < next_p_to_sec) {
+	             ilog("TESTING - check all primary_to_sec of this secondary type");
+                     analyze((*primary_to_sec_iter).first);
                   }
-	       };
-               const auto& key = (*session_iter).first;
-               ilog("TESTING - request size: ${rsize}, found size: ${fsize}",("rsize",secondary_key.full_primary_to_sec_key.size())("fsize", key.size()));
-	       analyze(key);
-	       const auto primary_to_sec_temp = db_key_value_format::create_full_key_prefix(secondary_key.full_primary_to_sec_key, end_of_prefix::at_prim_to_sec_type);
-	       auto next_p_to_sec = primary_to_sec_temp.next();
-	       auto primary_to_sec_iter = current_session.lower_bound(primary_to_sec_temp);
-               std::cout << "all of this secondary type" << std::endl;
-	       while(primary_to_sec_iter != current_session.end() && (*primary_to_sec_iter).first < next_p_to_sec) {
-	          ilog("TESTING - check all primary_to_sec of this secondary type");
-                  analyze((*primary_to_sec_iter).first);
-	       }
-	       const auto primary_to_sec_temp2 = db_key_value_format::create_full_key_prefix(secondary_key.full_primary_to_sec_key, end_of_prefix::at_type);
-	       primary_to_sec_iter = current_session.lower_bound(primary_to_sec_temp2);
-	       next_p_to_sec = primary_to_sec_temp.next();
-               std::cout << "all prim to sec type" << std::endl;
-	       while(primary_to_sec_iter != current_session.end() && (*primary_to_sec_iter).first < next_p_to_sec) {
-	          ilog("TESTING - check all primary_to_sec of this type");
-                  analyze((*primary_to_sec_iter).first);
-	       }
-            }
-            else {
-               ilog("TESTING - at end");
-            }
+                  const auto primary_to_sec_temp2 = db_key_value_format::create_full_key_prefix(secondary_key.full_primary_to_sec_key, end_of_prefix::at_type);
+                  primary_to_sec_iter = session.lower_bound(primary_to_sec_temp2);
+                  next_p_to_sec = primary_to_sec_temp.next();
+                  std::cout << "all prim to sec type" << std::endl;
+                  while(primary_to_sec_iter != session.end() && (*primary_to_sec_iter).first < next_p_to_sec) {
+                     ilog("TESTING - check all primary_to_sec of this type");
+                     analyze((*primary_to_sec_iter).first);
+                  }
+               }
+               else {
+                  ilog("TESTING - at end");
+               }
+	    };
+	    std::cout << "TESTING - current_session" << std::endl;
+	    analyze_session(current_session);
+
+	    eosio::session::session<eosio::session::rocksdb_t>* rocksdb = nullptr;
+	    session_type* next = &current_session;
+	    auto find_parent = [&rocksdb, &next](auto& session_var) {
+//               ilog("find parent: ${session}",("session",(uint64_t)(&session_var)));
+               std::visit(overloaded{ [&](session_type* p) {
+                             next = p;
+                          },
+                          [&](eosio::session::session<eosio::session::rocksdb_t>* p) {
+			     rocksdb = p;
+			     next = nullptr;
+                          } },
+               session_var.parent());
+//               ilog("rocksdb: ${rdb}, next: ${session}",("rdb",(uint64_t)rocksdb)((uint64_t)next));
+	    };
+	    while (rocksdb == nullptr) {
+               ilog("TESTING - find parent");
+               find_parent(*next);
+	    }
+	    std::cout << "TESTING - rocksdb_session" << std::endl;
+	    analyze_session(*rocksdb);
          }
          EOS_ASSERT( match_prefix(secondary_key.full_primary_to_sec_key, session_iter), db_rocksdb_invalid_operation_exception,
                      "db_${d}_remove called, but primary key: ${primary} didn't have a primary to secondary key",
