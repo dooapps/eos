@@ -151,8 +151,12 @@ namespace eosio { namespace chain { namespace backing_store {
          auto session_iter = current_session.lower_bound(secondary_key.prefix_primary_to_sec_key);
          if (!match_prefix(secondary_key.full_primary_to_sec_key, session_iter)) {
             if (session_iter != current_session.end()) {
+               std::cout << "secondary_key.full_primary_to_sec_key:" << std::endl;
+               std::cout << secondary_key.full_primary_to_sec_key << std::endl;
 	       auto analyze = [&](const auto& key) {
                   const auto min_size = std::min(secondary_key.full_primary_to_sec_key.size(), key.size());
+                  std::cout << "key:" << std::endl;
+                  std::cout << key << std::endl;
                   const char* data1 = secondary_key.full_primary_to_sec_key.data();
                   const char* data2 = key.data();
                   for (uint64_t i = 0; i < min_size; ++i) {
@@ -165,8 +169,17 @@ namespace eosio { namespace chain { namespace backing_store {
                ilog("TESTING - request size: ${rsize}, found size: ${fsize}",("rsize",secondary_key.full_primary_to_sec_key.size())("fsize", key.size()));
 	       analyze(key);
 	       const auto primary_to_sec_temp = db_key_value_format::create_full_key_prefix(secondary_key.full_primary_to_sec_key, end_of_prefix::at_prim_to_sec_type);
-	       const auto next_p_to_sec = primary_to_sec_temp.next();
+	       auto next_p_to_sec = primary_to_sec_temp.next();
 	       auto primary_to_sec_iter = current_session.lower_bound(primary_to_sec_temp);
+               std::cout << "all of this secondary type" << std::endl;
+	       while(primary_to_sec_iter != current_session.end() && (*primary_to_sec_iter).first < next_p_to_sec) {
+	          ilog("TESTING - check all primary_to_sec of this secondary type");
+                  analyze((*primary_to_sec_iter).first);
+	       }
+	       const auto primary_to_sec_temp2 = db_key_value_format::create_full_key_prefix(secondary_key.full_primary_to_sec_key, end_of_prefix::at_type);
+	       primary_to_sec_iter = current_session.lower_bound(primary_to_sec_temp2);
+	       next_p_to_sec = primary_to_sec_temp.next();
+               std::cout << "all prim to sec type" << std::endl;
 	       while(primary_to_sec_iter != current_session.end() && (*primary_to_sec_iter).first < next_p_to_sec) {
 	          ilog("TESTING - check all primary_to_sec of this type");
                   analyze((*primary_to_sec_iter).first);
