@@ -752,20 +752,39 @@ db.remove(*move_to_rocks);
       std::vector<std::pair<eosio::session::shared_bytes, eosio::session::shared_bytes>> batch;
       bool                more     = !section.empty();
       auto                read_row = [&section, &more, &db](auto& row) { more = section.read_row(row, db); };
+      auto the_one_table = [](name receiver, name scope, name table) {
+         return receiver == 5445032451822174736 && scope == 5445032451822174736 && table == 4229443000054317056;
+      };
+      auto the_one = [](name receiver, name scope, name table, uint64_t id) {
+         return receiver == 5445032451822174736 && scope == 5445032451822174736 && table == 4229443000054317056 && id == 2266960654;
+      };
 
+      bool print = false;
       while (more) {
          // read the row for the table
          table_id_object_view table_obj;
          read_row(table_obj);
-         auto put = [&batch, &table_obj](auto&& value, auto create_fun, auto&&... args) {
+         print = the_one_table(table_obj.code, table_obj.scope, table_obj.table);
+         if (print) {
+            std::cout << "TESTING - new table:" << std::endl;
+         }
+         auto put = [&batch, &table_obj, &print](auto&& value, auto create_fun, auto&&... args) {
             auto composite_key = create_fun(table_obj.scope, table_obj.table, std::forward<decltype(args)>(args)...);
-            batch.emplace_back(backing_store::db_key_value_format::create_full_key(composite_key, table_obj.code),
+	    auto full_key = backing_store::db_key_value_format::create_full_key(composite_key, table_obj.code);
+	    if (print) {
+               std::cout << "TESTING - adding full key:" << std::endl;
+               std::cout << full_key << std::endl;
+	    }
+            batch.emplace_back(full_key,
                                std::forward<decltype(value)>(value));
          };
 
          // handle the primary key index
          unsigned_int size;
          read_row(size);
+         if (print) {
+            std::cout << "TESTING - primary_keys: " << size << std::endl;
+         }
          for (size_t i = 0; i < size.value; ++i) {
             primary_index_view row;
             read_row(row);
@@ -773,21 +792,28 @@ db.remove(*move_to_rocks);
             put(pp.as_payload(), backing_store::db_key_value_format::create_primary_key, row.primary_key);
          }
 
-         auto write_secondary_index = [&put, &read_row](auto index) {
+         auto write_secondary_index = [&put, &read_row, &print, &table_obj, &the_one](auto index) {
             using index_t = decltype(index);
             static const eosio::session::shared_bytes  empty_payload;
             unsigned_int       size;
             read_row(size);
-            for (int i = 0; i < size.value; ++i) {
+            if (print) {
+               std::cout << "TESTING - secondary_key: " << size << std::endl;
+            }
+
+	    for (int i = 0; i < size.value; ++i) {
                secondary_index_view<index_t> row;
                read_row(row);
                backing_store::payer_payload pp{row.payer, nullptr, 0};
+               bool print_more = the_one(table_obj.code, table_obj.scope, table_obj.table, row.primary_key);
+	       if (print_more) std::cout << "THIS ONE SPECIFICALLY:" << std::endl;
                put(pp.as_payload(), &backing_store::db_key_value_format::create_secondary_key<index_t>,
                    row.secondary_key, row.primary_key);
 
                put(empty_payload, &backing_store::db_key_value_format::create_primary_to_secondary_key<index_t>,
                    row.primary_key, row.secondary_key);
-            }
+	       if (print_more) std::cout << "THIS ONE SPECIFICALLY DONE" << std::endl;
+	    }
          };
 
          // handle secondary key indices
@@ -797,6 +823,7 @@ db.remove(*move_to_rocks);
          backing_store::payer_payload pp{table_obj.payer, nullptr, 0};
          b1::chain_kv::bytes (*create_table_key)(name scope, name table) = backing_store::db_key_value_format::create_table_key;
          put(pp.as_payload(), create_table_key);
+         print = false;
       }
       kv_database.write(batch);
    }

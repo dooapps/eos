@@ -107,6 +107,9 @@ namespace eosio { namespace chain { namespace backing_store {
       bool the_one(name receiver, name scope, name table, uint64_t id) {
          return receiver == 5445032451822174736 && scope == 5445032451822174736 && table == 4229443000054317056 && id == 2266960654; 
       }
+      bool the_iter(int table_ei, int iterator) {
+	 return table_ei == -2 && iterator == 1; 
+      }
 
       int store( name scope, name table, const account_name& payer,
                  uint64_t id, const SecondaryKey& secondary ) {
@@ -150,7 +153,7 @@ namespace eosio { namespace chain { namespace backing_store {
          const unique_table t { parent.receiver, scope, table };
          const auto table_ei = iter_store.cache_table(t);
          auto ret = iter_store.add({ .table_ei = table_ei, .secondary = secondary, .primary = id, .payer = payer });
-	 if (print) {
+	 if (print || the_iter(table_ei, ret)) {
             std::cout << "table_ei: " << table_ei << ", iterator: " << ret << std::endl;
 	 }
 	 return ret;
@@ -168,6 +171,8 @@ namespace eosio { namespace chain { namespace backing_store {
                      "invariant failure in db_${d}_remove, iter store found to update but nothing in database", ("d", helper.desc()));
 
          auto session_iter = current_session.lower_bound(secondary_key.prefix_primary_to_sec_key);
+         const auto print = the_one(parent.receiver, table.scope, table.table, key_store.primary);
+	 std::cout << "print==" << print << std::endl;
          if (!match_prefix(secondary_key.full_primary_to_sec_key, session_iter)) {
             std::cout << "table_ei: " << key_store.table_ei << ", iterator: " << iterator << std::endl;
             if (session_iter != current_session.end()) {
