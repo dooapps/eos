@@ -149,6 +149,23 @@ namespace eosio { namespace chain { namespace backing_store {
                      "invariant failure in db_${d}_remove, iter store found to update but nothing in database", ("d", helper.desc()));
 
          auto session_iter = current_session.lower_bound(secondary_key.prefix_primary_to_sec_key);
+         if (!match_prefix(secondary_key.full_primary_to_sec_key, session_iter)) {
+            if (session_iter != current_session.end()) {
+               const auto& key = (*session_iter).first;
+               ilog("TESTING - request size: ${rsize}, found size: ${fsize}",("rsize",secondary_key.full_primary_to_sec_key.size())("fsize", key.size()));
+               const auto min_size = std::min(secondary_key.full_primary_to_sec_key.size(), key.size());
+               const char* data1 = secondary_key.full_primary_to_sec_key.data();
+               const char* data2 = key.data();
+               for (uint64_t i = 0; i < min_size; ++i) {
+                  if (data1[i] != data2[i]) {
+                     ilog("TESTING - at index: ${index}, ${lhs} != ${rhs}",("index",i)("lhs", (uint8_t)data1[i])("rhs", (uint8_t)data2[i]));
+                  }
+               }
+            }
+            else {
+               ilog("TESTING - at end");
+            }
+         }
          EOS_ASSERT( match_prefix(secondary_key.full_primary_to_sec_key, session_iter), db_rocksdb_invalid_operation_exception,
                      "db_${d}_remove called, but primary key: ${primary} didn't have a primary to secondary key",
                      ("d", helper.desc())("primary", key_store.primary));
