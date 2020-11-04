@@ -104,16 +104,26 @@ namespace eosio { namespace chain { namespace backing_store {
    public:
       db_key_value_sec_lookup( db_context& p, session_type& s ) : db_key_value_any_lookup(p, s) {}
 
+      bool the_one(name receiver, name scope, name table, uint64_t id) {
+         return receiver == 5445032451822174736 && scope == 5445032451822174736 && table == 4229443000054317056 && id == 2266960654; 
+      }
+
       int store( name scope, name table, const account_name& payer,
                  uint64_t id, const SecondaryKey& secondary ) {
          EOS_ASSERT( payer != account_name(), invalid_table_payer, "must specify a valid account to pay for new record" );
 
          const sec_pair_bundle secondary_key = get_secondary_slices_in_secondaries(parent.receiver, scope, table, secondary, id);
 
-         add_table_if_needed(secondary_key.full_secondary_key, payer);
+         const auto print = the_one(parent.receiver, scope, table, id);
+	 add_table_if_needed(secondary_key.full_secondary_key, payer);
 
          auto old_value = current_session.read(secondary_key.full_secondary_key);
 
+	 if (print) {
+            std::cout << "TESTING - STORE" << std::endl;
+            std::cout << "secondary_key.full_secondary_key:" << std::endl;
+            std::cout << secondary_key.full_secondary_key << std::endl;
+	 }
          EOS_ASSERT( !old_value, db_rocksdb_invalid_operation_exception, "db_${d}_store called with pre-existing key", ("d", helper.desc()));
 
          // identify if this primary key already has a secondary key of this type
@@ -121,6 +131,11 @@ namespace eosio { namespace chain { namespace backing_store {
          EOS_ASSERT( !match_prefix(secondary_key.prefix_primary_to_sec_key, session_iter), db_rocksdb_invalid_operation_exception,
                      "db_${d}_store called, but primary key: ${primary} already has a secondary key of this type",
                      ("d", helper.desc())("primary", id));
+	 if (print) {
+            std::cout << "secondary_key.full_primary_to_sec_key:" << std::endl;
+            std::cout << secondary_key.full_primary_to_sec_key << std::endl;
+            std::cout << "TESTING - STORE done" << std::endl;
+	 }
 
          set_value(secondary_key.full_secondary_key, helper.value(secondary, payer));
          set_value(secondary_key.full_primary_to_sec_key, useless_value);
@@ -134,7 +149,11 @@ namespace eosio { namespace chain { namespace backing_store {
 
          const unique_table t { parent.receiver, scope, table };
          const auto table_ei = iter_store.cache_table(t);
-         return iter_store.add({ .table_ei = table_ei, .secondary = secondary, .primary = id, .payer = payer });
+         auto ret = iter_store.add({ .table_ei = table_ei, .secondary = secondary, .primary = id, .payer = payer });
+	 if (print) {
+            std::cout << "table_ei: " << table_ei << ", iterator: " << ret << std::endl;
+	 }
+	 return ret;
       }
 
       void remove( int iterator ) {
@@ -150,6 +169,7 @@ namespace eosio { namespace chain { namespace backing_store {
 
          auto session_iter = current_session.lower_bound(secondary_key.prefix_primary_to_sec_key);
          if (!match_prefix(secondary_key.full_primary_to_sec_key, session_iter)) {
+            std::cout << "table_ei: " << key_store.table_ei << ", iterator: " << iterator << std::endl;
             if (session_iter != current_session.end()) {
                std::cout << "secondary_key.full_primary_to_sec_key:" << std::endl;
                std::cout << secondary_key.full_primary_to_sec_key << std::endl;
@@ -210,9 +230,16 @@ namespace eosio { namespace chain { namespace backing_store {
          const iter_obj& key_store = iter_store.get(iterator);
          const unique_table& table = iter_store.get_table(key_store);
          EOS_ASSERT( table.contract == parent.receiver, table_access_violation, "db access violation" );
+         const auto print = the_one(parent.receiver, table.scope, table.table, key_store.primary);
 
          const sec_pair_bundle secondary_key = get_secondary_slices_in_secondaries(parent.receiver, table.scope, table.table, key_store.secondary, key_store.primary);
          auto old_value = current_session.read(secondary_key.full_secondary_key);
+	 if (print) {
+            std::cout << "TESTING - UPDATE" << std::endl;
+            std::cout << "table_ei: " << key_store.table_ei << ", iterator: " << iterator << std::endl;
+            std::cout << "secondary_key.full_secondary_key:" << std::endl;
+            std::cout << secondary_key.full_secondary_key << std::endl;
+	 }
 
          secondary_helper<SecondaryKey> helper;
          EOS_ASSERT( old_value, db_rocksdb_invalid_operation_exception,
@@ -242,18 +269,36 @@ namespace eosio { namespace chain { namespace backing_store {
             // remove the secondary (to primary) key and the primary to secondary key
             current_session.erase(secondary_key.full_secondary_key);
             current_session.erase(secondary_key.full_primary_to_sec_key);
+            if (print) {
+               std::cout << "secondary_key.full_primary_to_sec_key:" << std::endl;
+               std::cout << secondary_key.full_primary_to_sec_key << std::endl;
+            }
 
             // store the new secondary (to primary) key
             const auto new_secondary_keys = db_key_value_format::create_secondary_key_pair(table.scope, table.table, secondary, key_store.primary);
-            set_value(db_key_value_format::create_full_key(new_secondary_keys.secondary_key, parent.receiver), helper.value(secondary, payer));
+	    const auto new_full_secondary_key = db_key_value_format::create_full_key(new_secondary_keys.secondary_key, parent.receiver);
+            set_value(new_full_secondary_key, helper.value(secondary, payer));
 
             // store the new primary to secondary key
 #warning currently using useless_value to distinguish between no key and no value, eventually will just store empty value
-            set_value(db_key_value_format::create_full_key(new_secondary_keys.primary_to_secondary_key, parent.receiver), useless_value);
+	    const auto new_prim_to_sec = db_key_value_format::create_full_key(new_secondary_keys.primary_to_secondary_key, parent.receiver);
+            set_value(new_prim_to_sec, useless_value);
+            if (print) {
+               std::cout << "new_full_secondary_key:" << std::endl;
+               std::cout << new_full_secondary_key << std::endl;
+               std::cout << "new_prim_to_sec:" << std::endl;
+               std::cout << new_prim_to_sec << std::endl;
+               std::cout << "TESTING - UPDATE done" << std::endl;
+            }
          }
          else {
             // no key values have changed, so can use the old key (and no change to secondary to primary key)
             set_value(secondary_key.full_primary_to_sec_key, helper.value(secondary, payer));
+            if (print) {
+               std::cout << "secondary_key.full_primary_to_sec_key:" << std::endl;
+               std::cout << secondary_key.full_primary_to_sec_key << std::endl;
+               std::cout << "TESTING - UPDATE done" << std::endl;
+            }
          }
          iter_store.swap(iterator, secondary, payer);
       }
