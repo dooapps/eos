@@ -7,6 +7,7 @@ from WalletMgr import WalletMgr
 from Node import Node
 from Node import ReturnType
 from TestHelper import TestHelper
+from TestHelper import AppArgs
 
 import decimal
 import re
@@ -25,9 +26,11 @@ errorExit=Utils.errorExit
 cmdError=Utils.cmdError
 from core_symbol import CORE_SYMBOL
 
+appArgs = AppArgs()
+extraArgs = appArgs.add(flag="--backing-store", type=str, help="The type of backing store to use: chainbase or rocksdb", default="chainbase")
 args = TestHelper.parse_args({"--host","--port","--prod-count","--defproducera_prvt_key","--defproducerb_prvt_key"
                               ,"--dump-error-details","--dont-launch","--keep-logs","-v","--leave-running","--only-bios","--clean-run"
-                              ,"--sanity-test","--wallet-port"})
+                              ,"--sanity-test","--wallet-port"}, applicationSpecificArgs=appArgs)
 server=args.host
 port=args.port
 debug=args.v
@@ -56,6 +59,10 @@ WalletdName=Utils.EosWalletName
 ClientName="cleos"
 timeout = .5 * 12 * 2 + 60 # time for finalization with 1 producer + 60 seconds padding
 Utils.setIrreversibleTimeout(timeout)
+backingStore=args.backing_store
+validBackingStore = ["chainbase", "rocksdb"]
+if backingStore not in validBackingStore:
+    errorExit("--backing-store parameter can only be: {}".format(", ".join(validBackingStore)))
 
 try:
     TestHelper.printSystemInfo("BEGIN")
@@ -729,6 +736,53 @@ try:
             #  for now, hopefully the logs will get cleaned up in future.
             Print("WARNING: Asserts in var/lib/node_00/stderr.txt")
             #errorExit("FAILURE - Assert in var/lib/node_00/stderr.txt")
+
+    # validate chainbase and rocksdb database access
+    cbNode = cluster.getNode(0)
+    rdbNode = cluster.getNode(1)
+
+    # def getAllEosio(node, table=None, limit=None, lower=None, upper=None, reverse=False):
+    #     all = []
+    #     allDict = {}
+    #     more = ""
+    #     firstPass = True
+    #     while True:
+    #         json = node.getScope("eosio", limit=limit, lower=lower, upper=upper, reverse=reverse)
+    #         more = json["more"]
+    #         rows = json["rows"]
+    #         if len(rows):
+    #             def checkMore(lastMore):
+    #                 if not firstPass and lastMore != None:
+    #                     entry = rows[0]
+    #                     scope = entry["scope"]
+    #                     if scope != lower:
+    #                         errorExit(f"Requested more: {lastMore}, but starting with {scope}")
+    #             if reverse:
+    #                 checkMore(upper)
+    #             else:
+    #                 checkMore(lower)
+    #
+    #         if more != "":
+    #             if reverse:
+    #                 upper=more
+    #             else:
+    #                 lower=more
+    #
+    #         lastMatch = -1
+    #         for i in range(0,len(rows)):
+    #             row = rows[i]
+    #             key = { "code" : row["code"], "scope" : row["scope"], "table" : table["table"] }
+    #             if key in allDict:
+    #                 if lastMatch + 1 != i:
+    #
+    #                     errorExit(f"Error: table data returned in different order.\nprevious:\n\n{}")
+    #
+    #         firstPass = False
+    #     return all
+    #
+    # allCB = getAllEosio(cbNode)
+    # allRDB = getAllEosio(rdbNode)
+    # compare(allCB, allRDB)
 
     Print("Validating accounts at end of test")
     accounts=[testeraAccount, currencyAccount, exchangeAccount]

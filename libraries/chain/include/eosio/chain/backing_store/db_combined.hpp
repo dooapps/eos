@@ -1,9 +1,15 @@
 #pragma once
 #include <eosio/chain/backing_store/db_key_value_format.hpp>
 #include <eosio/chain/backing_store/chain_kv_payer.hpp>
+#include <b1/session/rocks_session.hpp>
+#include <b1/session/session.hpp>
+#include <b1/session/undo_stack.hpp>
+#include <eosio/chain/kv_chainbase_objects.hpp>
 
 namespace eosio { namespace chain { namespace backing_store {
-using session_type = eosio::session::session<eosio::session::session<eosio::session::rocksdb_t>>;
+using rocks_db_type = eosio::session::session<eosio::session::rocksdb_t>;
+using session_type = eosio::session::session<rocks_db_type>;
+using kv_undo_stack_ptr = std::unique_ptr<eosio::session::undo_stack<rocks_db_type>>;
 template<typename Object>
 const char* contract_table_type();
 
@@ -60,22 +66,28 @@ struct table_id_object_view {
 };
 
 struct blob {
-   std::string data;
+   std::string str_data;
+   std::size_t size() const { return str_data.size(); }
+   const char* data() const { return str_data.data(); }
 };
 
 template<typename DataStream>
 inline DataStream &operator<<(DataStream &ds, const blob &b) {
-   fc::raw::pack(ds, b.data);
+   fc::raw::pack(ds, b.str_data);
    return ds;
 }
 
 template<typename DataStream>
 inline DataStream &operator>>(DataStream &ds, blob &b) {
-   fc::raw::unpack(ds, b.data);
+   fc::raw::unpack(ds, b.str_data);
    return ds;
 }
 
 struct primary_index_view {
+   static primary_index_view create(uint64_t key, const char* value, std::size_t value_size) {
+      backing_store::payer_payload pp(value, value_size);
+      return primary_index_view{key, pp.payer, {std::string{pp.value, pp.value + pp.value_size}}};
+   }
    uint64_t primary_key;
    account_name payer;
    blob value;
@@ -216,8 +228,7 @@ public:
          uint64_t primary_key;
          EOS_ASSERT(b1::chain_kv::extract_key(remaining, key_end, primary_key), bad_composite_key_exception,
                     "DB intrinsic key-value store composite key is malformed");
-         backing_store::payer_payload pp(value, value_size);
-         receiver_.add_row(primary_index_view{primary_key, pp.payer, {std::string{pp.value, pp.value + pp.value_size}}});
+         receiver_.add_row(primary_index_view::create(primary_key, value, value_size));
       }
       ++primary_count_;
    }
@@ -247,11 +258,18 @@ public:
 
       const name code = name{contract};
       if (table_context_ && is_reversed() && !is_same_table(code, scope, table)) {
+         ilog("REM newt scope: ${scope}, table: ${table}, remaining: ${rem}, type: ${type}",
+              ("scope",scope.to_string())("table",table.to_string())("rem", (uint64_t)std::distance(remaining, composite_key.cend()))("type", static_cast<uint8_t>(type)));
          table_context_->count = total_count();
          receiver_.add_row(*table_context_);
+      } else {
+         ilog("REM      scope: ${scope}, table: ${table}, remaining: ${rem}, type: ${type}",
+              ("scope",scope.to_string())("table",table.to_string())("rem", (uint64_t)std::distance(remaining, composite_key.cend()))("type", static_cast<uint8_t>(type)));
       }
 
       if (!keep_processing_()) {
+         ilog("REM done scope: ${scope}, table: ${table}, remaining: ${rem}, type: ${type}",
+              ("scope",scope.to_string())("table",table.to_string())("rem", (uint64_t)std::distance(remaining, composite_key.cend()))("type", static_cast<uint8_t>(type)));
          // performing the check after retrieving the prefix to provide similar results for RPC calls
          // (indicating next scope)
          stopped_processing_ = true;
@@ -298,6 +316,8 @@ public:
    // called to indicate processing is complete (to allow completion of reversed table processing)
    void complete() {
       if (is_reversed() && table_context_ && !stopped_processing_) {
+         ilog("REM flsh scope: ${scope}, table: ${table}",
+              ("scope",table_context_->scope.to_string())("table",table_context_->table.to_string()));
          table_context_->count = total_count();
          receiver_.add_row(*table_context_);
       }
@@ -406,15 +426,19 @@ namespace detail {
                     session_type& session) : is_reverse_(is_reverse) {
          if (is_reverse_) {
             current_ = session.lower_bound(end_key);
+            REM_print(current_, "current_ as end_key");
             end_ = session.lower_bound(begin_key);
+            REM_print(end_, "end_ as begin_key");
             // since this is reverse iterating, then need to iterate backward if this is a greater-than iterator,
             // to get a greater-than-or-equal reverse iterator
             if ((*current_).first > end_key) {
                --current_;
+               REM_print(current_, "current_ after rev");
             }
             // since this is reverse iterating, then need to iterate backward to get a less-than iterator
             if (end_ != session.end()) {
                --end_;
+               REM_print(end_, "end_ after rev");
             }
          }
          else {
@@ -423,7 +447,33 @@ namespace detail {
          }
       }
 
+      void REM_print(const session_type::iterator& itr, std::string desc) const {
+         auto actual_db_kv_key = (*itr).first;
+         uint64_t    contract;
+         constexpr std::size_t type_size = 1;
+         std::size_t key_prefix_size = type_size + sizeof(contract);
+         if(actual_db_kv_key.size() >= key_prefix_size) {
+            auto key_buffer = std::vector<char>{ actual_db_kv_key.data(), actual_db_kv_key.data() + actual_db_kv_key.size() };
+            auto begin = std::begin(key_buffer) + type_size;
+            auto end = std::begin(key_buffer) + key_prefix_size;
+            b1::chain_kv::extract_key(begin, end, contract);
+
+            const char* post_contract = actual_db_kv_key.data() + key_prefix_size;
+            const std::size_t rest = actual_db_kv_key.size() - key_prefix_size;
+            b1::chain_kv::bytes composite_key(post_contract, post_contract + rest);
+            auto[scope, table, remaining, type] = backing_store::db_key_value_format::get_prefix_thru_key_type(
+                  composite_key);
+            ilog("REM contract: ${contract}, scope: ${scope}, table: ${table}, remaining: ${rem}, type: ${type}  --   ${desc}",
+                 ("contract",name{contract}.to_string())("scope",scope.to_string())("table",table.to_string())("rem", (uint64_t)std::distance(remaining, composite_key.cend()))("type", static_cast<uint8_t>(type))("desc", desc));
+         } else {
+            ilog("REM probably at end  --   ${desc}",("desc", desc));
+         }
+      }
+
       bool valid() const {
+         if (current_ == end_) {
+            REM_print(current_, "current_ at not valid");
+         }
          return current_ != end_;
       }
 
@@ -476,6 +526,7 @@ void walk_rocksdb_entries_with_prefix(const kv_undo_stack_ptr& kv_undo_stack,
    bool keep_processing = true;
    for (; keep_processing && iter_pair.valid(); iter_pair.move()) {
       const auto data = iter_pair.get();
+      ilog("REM key size: ${ks}, value size: ${vs}",("ks",data.first.size())("vs",(data.second ? std::to_string(data.second->size()) : "<not valid>")));
       // iterating through the session will always return a valid value
       keep_processing = read_rocksdb_entry(data.first, *data.second, function);
    }
@@ -590,11 +641,11 @@ REFLECT_SECONDARY(eosio::chain::backing_store::secondary_index_view<float128_t>)
 namespace fc {
    inline
    void to_variant( const eosio::chain::backing_store::blob& b, variant& v ) {
-      v = variant(base64_encode(b.data.data(), b.data.size()));
+      v = variant(base64_encode(b.str_data.data(), b.str_data.size()));
    }
 
    inline
    void from_variant( const variant& v, eosio::chain::backing_store::blob& b ) {
-      b.data = base64_decode(v.as_string());
+      b.str_data = base64_decode(v.as_string());
    }
 }

@@ -97,7 +97,7 @@ namespace eosio {
       bool          have_block = false; // true if we have received the block, false if only received id notification
    };
 
-   struct by_block_id;
+   struct by_peer_block_id;
 
    typedef multi_index_container<
       eosio::peer_block_state,
@@ -109,7 +109,7 @@ namespace eosio {
                >,
                composite_key_compare< std::less<uint32_t>, sha256_less >
          >,
-         ordered_non_unique< tag<by_block_id>,
+         ordered_non_unique< tag<by_peer_block_id>,
                composite_key< peer_block_state,
                      member<peer_block_state, block_id_type, &eosio::peer_block_state::id>,
                      member<peer_block_state, bool, &eosio::peer_block_state::have_block>
@@ -1973,12 +1973,16 @@ namespace eosio {
 
    bool dispatch_manager::have_block( const block_id_type& blkid ) const {
       std::lock_guard<std::mutex> g(blk_state_mtx);
-      // by_block_id sorts have_block by greater so have_block == true will be the first one found
-      const auto& index = blk_state.get<by_block_id>();
+      // by_peer_block_id sorts have_block by greater so have_block == true will be the first one found
+      ilog("REM called");
+      const auto& index = blk_state.get<by_peer_block_id>();
+      ilog("REM called");
       auto blk_itr = index.find( blkid );
       if( blk_itr != index.end() ) {
+         ilog("REM called");
          return blk_itr->have_block;
       }
+      ilog("REM called");
       return false;
    }
 

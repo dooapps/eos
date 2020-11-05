@@ -14,7 +14,6 @@
 #include <eosio/chain/snapshot.hpp>
 #include <eosio/chain/combined_database.hpp>
 #include <eosio/chain/backing_store/kv_context.hpp>
-#include <eosio/chain/backing_store/db_combined.hpp>
 #include <eosio/to_key.hpp>
 
 #include <eosio/chain/eosio_contract.hpp>
@@ -2376,13 +2375,29 @@ struct table_receiver {
    : result_(result), params_(params) {
       check_limit();
    }
+   ~table_receiver() {// REMOVE!!!!!!!!!!!!!!!!!!
+      ilog("REM ~table_receiver");
+      for (const auto& entry : REM_rec) {
+         ilog("REM ${e}",("e", entry.c_str()));
+      }
+      ilog("REM ~table_receiver done");
+   }
 
    template<typename Object>
    void add_row(const Object& row) {
       if constexpr (std::is_same_v<Object, backing_store::table_id_object_view>) {
-         if( params_.table && row.table != params_.table )
+         char REM[200];
+         const auto wrote = sprintf(REM, "c: %s, s: %s, t: %s, p: %s, n: %d",row.code.to_string().c_str(),row.scope.to_string().c_str(),row.table.to_string().c_str(),row.payer.to_string().c_str(), row.count);
+         if( params_.table && row.table != params_.table ) {
+            const auto write2 = sprintf(REM + wrote, " table filtered, entries: %d", result_.rows.size());
+            REM[wrote + write2] = '\0';
+            REM_rec.push_back(REM);
             return;
+         }
          result_.rows.push_back( {row.code, row.scope, row.table, row.payer, row.count} );
+         const auto write2 = sprintf(REM + wrote, " added, entries: %d", result_.rows.size());
+         REM[wrote + write2] = '\0';
+         REM_rec.push_back(REM);
          check_limit();
       } else {
          FC_THROW_EXCEPTION(chain::contract_table_query_exception, "Invariant failure, should not receive an add_row call of type: ${type}",
@@ -2406,6 +2421,7 @@ struct table_receiver {
    const read_only::get_table_by_scope_params& params_;
    std::optional<keep_processing> kp_;
    bool reached_limit_ = false;
+   std::vector<std::string> REM_rec;
 };
 
 read_only::get_table_by_scope_result read_only::get_table_by_scope( const read_only::get_table_by_scope_params& p )const {
@@ -3308,6 +3324,26 @@ chain::symbol read_only::extract_core_symbol()const {
    }
 
    return core_symbol;
+}
+
+fc::variant read_only::get_primary_key(name code, name scope, name table, uint64_t primary_key, row_requirements require_table,
+                                       row_requirements require_primary, const std::string_view& type, bool as_json) {
+   const abi_def abi = eosio::chain_apis::get_abi(db, code);
+   abi_serializer abis;
+   abis.set_abi(abi, abi_serializer::create_yield_function(abi_serializer_max_time));
+   return get_primary_key(code, scope, table, primary_key, require_table, require_primary, type, abis, as_json);
+}
+
+fc::variant read_only::get_primary_key(name code, name scope, name table, uint64_t primary_key, row_requirements require_table,
+                                       row_requirements require_primary, const std::string_view& type, const abi_serializer& abis,
+                                       bool as_json) {
+   fc::variant val;
+   const auto valid = get_primary_key_internal(code, scope, table, primary_key, require_table, require_primary, [&,this](const auto& obj) {
+      vector<char> data;
+      read_only::copy_inline_row(obj, data);
+      val = abis.binary_to_variant(type, data, abi_serializer::create_yield_function( abi_serializer_max_time ), shorten_abi_errors );
+   });
+   return val;
 }
 
 } // namespace chain_apis
