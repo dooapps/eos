@@ -237,9 +237,7 @@ namespace eosio {
             else if( at.act.name == "updateauth"_n )
             {
                const auto update = at.act.data_as<chain::updateauth>();
-               ilog("REM called");
                remove<public_key_history_multi_index, by_account_permission_name>(db, update.account, update.permission);
-               ilog("REM called");
                remove<account_control_history_multi_index, by_controlled_authority>(db, update.account, update.permission);
                add(db, update.auth.keys, update.account, update.permission);
                add(db, update.auth.accounts, update.account, update.permission);
@@ -247,9 +245,7 @@ namespace eosio {
             else if( at.act.name == "deleteauth"_n )
             {
                const auto del = at.act.data_as<chain::deleteauth>();
-               ilog("REM called");
                remove<public_key_history_multi_index, by_account_permission_name>(db, del.account, del.permission);
-               ilog("REM called");
                remove<account_control_history_multi_index, by_controlled_authority>(db, del.account, del.permission);
             }
          }
@@ -467,9 +463,7 @@ namespace eosio {
          };
 
          const auto& db = chain.db();
-         ilog("REM called");
          const auto& idx = db.get_index<action_history_index, by_trx_id_act_seq>();
-         ilog("REM called");
          auto itr = idx.lower_bound( boost::make_tuple( input_id ) );
 
          bool in_history = (itr != idx.end() && txn_id_matched(itr->trx_id) );

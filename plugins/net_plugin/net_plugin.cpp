@@ -1974,15 +1974,11 @@ namespace eosio {
    bool dispatch_manager::have_block( const block_id_type& blkid ) const {
       std::lock_guard<std::mutex> g(blk_state_mtx);
       // by_peer_block_id sorts have_block by greater so have_block == true will be the first one found
-      ilog("REM called");
       const auto& index = blk_state.get<by_peer_block_id>();
-      ilog("REM called");
       auto blk_itr = index.find( blkid );
       if( blk_itr != index.end() ) {
-         ilog("REM called");
          return blk_itr->have_block;
       }
-      ilog("REM called");
       return false;
    }
 

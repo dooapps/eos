@@ -453,16 +453,11 @@ public:
    get_scheduled_transactions_result get_scheduled_transactions( const get_scheduled_transactions_params& params ) const;
 
    enum class row_requirements { required, optional };
-   fc::variant get_primary_key(name code, name scope, name table, uint64_t primary_key, row_requirements require_table,
-                               row_requirements require_primary, const std::string_view& type, bool as_json = true);
-   fc::variant get_primary_key(name code, name scope, name table, uint64_t primary_key, row_requirements require_table,
-                               row_requirements require_primary, const std::string_view& type, const abi_serializer& abis,
-                               bool as_json = true);
-
    template<typename Function>
    bool get_primary_key_internal(name code, name scope, name table, uint64_t primary_key, row_requirements require_table,
-                                 row_requirements require_primary, Function&& f) {
+                                 row_requirements require_primary, Function&& f) const {
       auto& kv_database = const_cast<chain::controller&>(db).kv_db();
+      ilog("REM get_primary_key_internal");
       if (kv_database.get_backing_store() == eosio::chain::backing_store_type::CHAINBASE) {
          const auto* const table_id =
                db.db().find<chain::table_id_object, chain::by_code_scope_table>(boost::make_tuple(code, scope, table));
@@ -485,6 +480,7 @@ public:
          return true;
       }
       else {
+         ilog("REM get_primary_key_internal rocksdb");
          using namespace eosio::chain;
          EOS_ASSERT(kv_database.get_backing_store() == backing_store_type::ROCKSDB,
                     chain::contract_table_query_exception,
@@ -507,8 +503,10 @@ public:
                        "Missing row for primary_key: ${primary} in code: ${code}, scope: ${scope}, table: ${table}",
                        ("primary", primary_key)("code",code.to_string())("scope",scope.to_string())
                        ("table",table.to_string()));
+            ilog("REM get_primary_key_internal nothing found");
             return false;
          }
+         ilog("REM code: ${c}, s: ${s}, t: ${t}, id: ${id}, vsize: ${s}",("c",code.to_string())("s",scope.to_string())("t",table.to_string())("s",value->size()));
          f(chain::backing_store::primary_index_view::create(primary_key, value->data(), value->size()));
          return true;
       }
@@ -516,9 +514,12 @@ public:
 
    template<typename T, typename Function>
    bool get_primary_key(name code, name scope, name table, uint64_t primary_key, row_requirements require_table,
-                        row_requirements require_primary, Function&& f) {
-      return get_primary_key_internal(code, scope, table, primary_key, require_table, require_primary, [&f](const auto& obj) {
+                        row_requirements require_primary, Function&& f) const {
+      ilog("REM get_primary_key");
+      auto ret = get_primary_key_internal(code, scope, table, primary_key, require_table, require_primary, [&f](const auto& obj) {
+         ilog("REM check size");
          if( obj.value.size() >= sizeof(T) ) {
+            ilog("REM extract");
             T t;
             fc::datastream<const char *> ds(obj.value.data(), obj.value.size());
             fc::raw::unpack(ds, t);
@@ -526,7 +527,15 @@ public:
             f(t);
          }
       });
+      ilog("REM get_primary_key done");
+      return ret;
    }
+
+   fc::variant get_primary_key(name code, name scope, name table, uint64_t primary_key, row_requirements require_table,
+                               row_requirements require_primary, const std::string_view& type, bool as_json = true) const;
+   fc::variant get_primary_key(name code, name scope, name table, uint64_t primary_key, row_requirements require_table,
+                               row_requirements require_primary, const std::string_view& type, const abi_serializer& abis,
+                               bool as_json = true) const;
 
    template<typename KeyValueObj>
    static void copy_inline_row(const KeyValueObj& obj, vector<char>& data) {
